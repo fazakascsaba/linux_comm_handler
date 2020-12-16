@@ -1,8 +1,21 @@
 import paramiko
 import time
-from getpass import getpass
 import random
- 
+import logging
+
+# create logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+# create console handler and set level to debug
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+# create formatter
+formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s %(threadName)s : %(message)s')
+# add formatter to ch
+ch.setFormatter(formatter)
+# add ch to logger
+logger.addHandler(ch)
+
 # paramiko functions -- START
 def establish_ssh_connection(hostname,username,password):
   delay=round(random.uniform(0.1,0.5),1)
@@ -14,7 +27,7 @@ def establish_ssh_connection(hostname,username,password):
       ssh.connect(hostname, port=22, username=username,password=password, timeout=50, banner_timeout=600, auth_timeout=30)
       return ssh
     except paramiko.AuthenticationException as _:
-      print(f'{hostname} Authentication error occured.')
+      logger.error(f'{hostname} Authentication error occured.')
       return None
     except Exception as _:
       ssh.close()
@@ -25,11 +38,10 @@ def establish_ssh_connection(hostname,username,password):
     time.sleep(2)
     if ssh.get_transport() is None:
       r_delay=round(random.uniform(4.5,5.5),1)
-      #
       time.sleep(r_delay)
     retry_counter+=1
   if ssh.get_transport() is None:
-    print(f'connecting to {hostname} failed after {retry_counter} attempts')
+    logger.error(f'connecting to {hostname} failed after {retry_counter} attempts')
     return None
   else:
     return ssh
@@ -47,7 +59,7 @@ def create_channel(client):
       channel.recv(2048).decode(encoding='UTF-8')
     return channel
   except Exception as e:
-    print(f'an error occured while creating channel: {e}')
+    logger.error(f'An error occured while creating channel: {e}')
     return None
 def send_command(cmd,channel):
   while not channel.send_ready():
@@ -60,13 +72,13 @@ def receive_data(channel):
   repeat_counter=0
   while (not result.endswith(('> ','$ '))) and (not (result.find('[sudo] password for') > -1)):
     if not channel:
-      print('Channel closed unexpectedly.')
+      logger.error('Channel closed unexpectedly.')
       break
     while not channel.recv_ready():
       if any((result.endswith(('> ','$ ')),channel.send_ready())):
         break
       repeat_counter+=1
-      print(f'repeat_counter={repeat_counter} on {channel}')
+      logger.error(f'repeat_counter={repeat_counter} on {channel}')
       time.sleep(0.1)
     while channel.recv_ready():
       result+=channel.recv(2048).decode(encoding='UTF-8')
@@ -80,7 +92,7 @@ def sudo(user,pwd,channel):
     if send_command('whoami',channel)[0]==user:
       return True
   except Exception as e:
-    print(f'error occured while executing "whoami": {e}')
+    logger.error(f'error occured while executing "whoami": {e}')
  
   def sudo_with_retry(user,pwd,channel):
     send_command(f'sudo -su {user}', channel)
@@ -121,37 +133,25 @@ def get_PID(is_running,instance,fwk_ctr,channel):
     status=0
   return status
  
- 
 if __name__ == '__main__':
   import sys
- 
-  servers=['attraktor.mooo.com']
+  from getpass import getpass
+  servers=['','']
   uname=input('Please enter your username: ')
   pwd=getpass('Please enter your password: ')
-  commands=['uname','date']
+  commands=['uname','date','uname','date','uname']
  
   for server in servers:
+    logger.info(f'Working on {server}')
     client=establish_ssh_connection(server,uname,pwd)
     channel=create_channel(client)
+
     if channel:
       for command in commands:
         for line in send_command(command,channel):
-          print(line)
- 
+          logger.info(f'{line}')
       channel.shutdown(2)
       channel.close()
       client.close()
     else:
-      print(f'I could not connect to {server}')
- 
-'''
-import paramiko
-ssh=paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect('<server>', port=22, username='',password='', timeout=50, banner_timeout=600, auth_timeout=30)
-channel=ssh.invoke_shell()
-channel.send(f'date\n')
-channel.shutdown(2)
-channel.close()
-ssh.close()
-'''
+      logger.error(f'I could not connect to {server}')
